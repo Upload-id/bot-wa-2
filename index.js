@@ -21,35 +21,67 @@ function clearAuth() {
   }
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Fungsi animasi mengetik titik-titik selama 4 detik
+async function keepTyping(jid, durationMs = 4000) {
+  const intervalMs = 1500;
+  const startTime = Date.now();
+  
+  while (Date.now() - startTime < durationMs) {
+    try {
+      await sock.sendPresenceUpdate('composing', jid);
+    } catch (e) {}
+    const remaining = durationMs - (Date.now() - startTime);
+    if (remaining > 0) {
+      await sleep(Math.min(intervalMs, remaining));
+    }
+  }
+}
+
 async function askAI(promptText) {
+  const groqKey = process.env.GROQ_API_KEY || "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";
+
   try {
-    const apiKey = process.env.GROQ_API_KEY || "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";
-    const systemInstruction = "Kamu adalah asisten virtual AI cerdas dari Samarinda yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif.";
+    const systemInstruction = `Kamu adalah asisten AI yang ramah, responsif, cerdas, dan fleksibel. Jawablah pertanyaan pengguna secara langsung, jelas, natural, dan informatif. Tidak perlu selalu mengawali pesan dengan kata "Selamat pagi/siang/sore/malam" kecuali pengguna yang menyapa duluan.`;
 
     const response = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "openai/gpt-oss-20b",
+        model: "openai/gpt-oss-120b",
         messages: [
           { role: "system", content: systemInstruction },
           { role: "user", content: promptText }
         ],
-        temperature: 0.5,
+        temperature: 0.7,
         max_tokens: 500
       },
       {
         headers: {
-          "Authorization": `Bearer ${apiKey}`,
+          "Authorization": `Bearer ${groqKey}`,
           "Content-Type": "application/json"
         },
-        timeout: 15000
+        timeout: 12000
       }
     );
 
-    return response.data?.choices?.[0]?.message?.content || "Maaf, tidak ada jawaban yang dihasilkan.";
+    const resultText = response.data?.choices?.[0]?.message?.content;
+    if (resultText) return resultText;
+
+    throw new Error("Respon AI kosong");
+
   } catch (err) {
     console.error("Groq API Error Detail:", err.response?.data || err.message);
-    return "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!";
+
+    const cleanText = promptText.replace(/x/g, '*').replace(/÷/g, '/');
+    if (/^[0-9\s\+\-\*\/\.\(\)]+$/.test(cleanText.trim())) {
+      try {
+        const res = eval(cleanText);
+        return `Hasil dari ${promptText} adalah ${res}`;
+      } catch (e) {}
+    }
+
+    return "Maaf, sistem sedang memproses permintaan lain. Ada yang bisa saya bantu?";
   }
 }
 
@@ -79,7 +111,7 @@ async function initSocket() {
     } else if (connection === 'open') {
       isConnected = true;
       pairingCode = "Bot WhatsApp Sudah Terhubung!";
-      console.log('BOT WHATSAPP 2 AKTIF BERHASIL!');
+      console.log('BOT WHATSAPP AKTIF BERHASIL!');
     }
   });
 
@@ -99,17 +131,21 @@ async function initSocket() {
 
       const textLower = body.toLowerCase().trim();
 
-      // Kata kunci khusus renovasi/perbaikan rumah
-      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'dinding', 'renovasi', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi', 'cat', 'semen', 'batu', 'harga', 'biaya'];
-      const isHomeService = keywords.some(kw => textLower.includes(kw));
+      const homeKeywords = ['renovasi', 'bangun rumah', 'atap bocor', 'tukang bangunan', 'borongan rumah', 'cat rumah', 'pasang semen'];
+      const isHomeService = homeKeywords.some(kw => textLower.includes(kw));
 
       if (isHomeService) {
+        await keepTyping(from, 4000);
+        await sock.sendPresenceUpdate('paused', from);
         await sock.sendMessage(from, { 
-          text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" 
+          text: "Halo! Mohon tunggu sebentar ya, pesan Anda akan segera dibalas oleh tim kami. Terima kasih!" 
         });
       } else {
-        await sock.sendPresenceUpdate('composing', from);
-        const reply = await askAI(body);
+        const replyPromise = askAI(body);
+        const typingPromise = keepTyping(from, 4000);
+
+        const [reply] = await Promise.all([replyPromise, typingPromise]);
+        
         await sock.sendPresenceUpdate('paused', from);
         await sock.sendMessage(from, { text: reply });
       }
@@ -144,7 +180,7 @@ const server = http.createServer(async (req, res) => {
   res.end(`
     <html>
       <head>
-        <title>Pairing Bot WA 2</title>
+        <title>Pairing Bot WA</title>
         <meta name="viewport" content="width=device-width, initial-scale=1">
         <style>
           body { font-family: sans-serif; text-align: center; padding: 20px; background: #f4f4f9; }
@@ -156,7 +192,7 @@ const server = http.createServer(async (req, res) => {
       </head>
       <body>
         <div class="card">
-          <h2>Pairing Bot WhatsApp 2</h2>
+          <h2>Pairing Bot WhatsApp</h2>
           <form method="GET">
             <input type="text" name="number" placeholder="Contoh: 628123456789" required />
             <button type="submit">Dapatkan Kode</button>
