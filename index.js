@@ -3,6 +3,7 @@ const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const axios = require('axios');
 
 const AUTH_DIR = path.join(__dirname, 'auth_info_baileys');
 let pairingCode = "Sedang memproses... Refresh halaman ini beberapa detik lagi.";
@@ -22,16 +23,13 @@ function clearAuth() {
 
 async function askAI(promptText) {
   try {
+    // API Key Groq
     const apiKey = process.env.GROQ_API_KEY || "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";
-    const systemInstruction = "Kamu adalah asisten virtual AI cerdas yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif.";
+    const systemInstruction = "Kamu adalah asisten virtual AI cerdas dari Samarinda yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif.";
 
-    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: systemInstruction },
@@ -39,19 +37,20 @@ async function askAI(promptText) {
         ],
         temperature: 0.5,
         max_tokens: 500
-      })
-    });
+      },
+      {
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        timeout: 15000
+      }
+    );
 
-    if (!response.ok) {
-      console.error(`Groq API Error: ${response.status}`);
-      return "Maaf, sistem AI sedang mengalami kendala jaringan. Silakan coba lagi nanti.";
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || "Maaf, tidak ada jawaban yang dihasilkan.";
+    return response.data?.choices?.[0]?.message?.content || "Maaf, tidak ada jawaban yang dihasilkan.";
   } catch (err) {
-    console.error("Fetch AI Error:", err.message);
-    return "Maaf, terjadi kesalahan saat menghubungkan ke AI.";
+    console.error("Groq API Error Detail:", err.response?.data || err.message);
+    return "Halo! Ada yang bisa saya bantu tentang layanan renovasi & pembangunan rumah di Samarinda?";
   }
 }
 
@@ -74,8 +73,6 @@ async function initSocket() {
     if (connection === 'close') {
       isConnected = false;
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-      console.log(`Koneksi Terputus: Status ${statusCode}`);
-
       if (statusCode === DisconnectReason.loggedOut || statusCode === 401 || statusCode === 408) {
         clearAuth();
       }
@@ -83,9 +80,7 @@ async function initSocket() {
     } else if (connection === 'open') {
       isConnected = true;
       pairingCode = "Bot WhatsApp Sudah Terhubung!";
-      console.log('\n==================================================');
-      console.log('  BOT WHATSAPP 2 AKTIF!');
-      console.log('==================================================\n');
+      console.log('BOT WHATSAPP 2 AKTIF BERHASIL!');
     }
   });
 
@@ -96,7 +91,6 @@ async function initSocket() {
 
       const from = msg.key.remoteJid;
       
-      // Ambil teks pesan dengan aman dari berbagai tipe pesan
       const body = msg.message?.conversation || 
                    msg.message?.extendedTextMessage?.text || 
                    msg.message?.imageMessage?.caption || 
@@ -106,26 +100,19 @@ async function initSocket() {
 
       const textLower = body.toLowerCase().trim();
 
-      // Daftar kata kunci pekerjaan rumah / perbaikan
-      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'dinding', 'renovasi', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi', 'cat', 'semen', 'batu'];
+      // Kata kunci khusus konstruksi/renovasi langsung dibalas tanpa API AI
+      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'dinding', 'renovasi', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi', 'cat', 'semen', 'batu', 'harga', 'biaya'];
       const isHomeService = keywords.some(kw => textLower.includes(kw));
 
       if (isHomeService) {
-        // Kirim balasan otomatis tanpa lewat AI
         await sock.sendMessage(from, { 
-          text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" 
+          text: "Sabar ya, sebentar lagi admin membalas pesan Anda terkait layanan renovasi/konstruksi. Terima kasih!" 
         });
       } else {
-        // Balasan menggunakan AI
-        try {
-          await sock.sendPresenceUpdate('composing', from);
-          const reply = await askAI(body);
-          await sock.sendPresenceUpdate('paused', from);
-          await sock.sendMessage(from, { text: reply });
-        } catch (aiErr) {
-          console.error("Error sending AI msg:", aiErr);
-          await sock.sendMessage(from, { text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" });
-        }
+        await sock.sendPresenceUpdate('composing', from);
+        const reply = await askAI(body);
+        await sock.sendPresenceUpdate('paused', from);
+        await sock.sendMessage(from, { text: reply });
       }
     } catch (generalErr) {
       console.error("Error handling message:", generalErr);
@@ -133,7 +120,6 @@ async function initSocket() {
   });
 }
 
-// Server Web untuk Minta Kode via URL Alwaysdata
 const PORT = process.env.PORT || 8100;
 const server = http.createServer(async (req, res) => {
   const urlObj = new URL(req.url, `http://${req.headers.host}`);
