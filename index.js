@@ -31,12 +31,12 @@ async function askAI(promptText) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      model: "openai/gpt-oss-120b",
+      model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: systemInstruction },
         { role: "user", content: promptText }
       ],
-      temperature: 0.3,
+      temperature: 0.5,
       max_tokens: 500
     })
   });
@@ -92,11 +92,29 @@ async function initSocket() {
     const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
 
     if (body) {
-      try {
-        const reply = await askAI(body);
-        await sock.sendMessage(from, { text: reply });
-      } catch (err) {
-        console.error("Error AI:", err);
+      const textLower = body.toLowerCase();
+
+      // Cek apakah pesan berhubungan dengan perbaikan / renovasi / pembangunan rumah
+      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'cat dinding', 'renovasi', 'pasang bata', 'upa borongan', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi'];
+      const isHomeService = keywords.some(kw => textLower.includes(kw));
+
+      if (isHomeService) {
+        // Balasan langsung untuk perbaikan / renovasi rumah
+        await sock.sendMessage(from, { 
+          text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" 
+        });
+      } else {
+        // Balasan standar menggunakan AI
+        try {
+          await sock.sendPresenceUpdate('composing', from);
+          const reply = await askAI(body);
+          await sock.sendPresenceUpdate('paused', from);
+          await sock.sendMessage(from, { text: reply });
+        } catch (err) {
+          console.error("Error AI:", err);
+          await sock.sendPresenceUpdate('paused', from);
+          await sock.sendMessage(from, { text: "Maaf, sistem AI sedang mengalami kesibukan. Silakan coba kirim pesan lagi." });
+        }
       }
     }
   });
