@@ -21,33 +21,38 @@ function clearAuth() {
 }
 
 async function askAI(promptText) {
-  const apiKey = process.env.GROQ_API_KEY || "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";
-  const systemInstruction = `Kamu adalah asisten virtual AI cerdas yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif. Gunakan bahasa yang disesuaikan dengan pengguna (Bahasa Indonesia, Inggris, Jawa, dll).`;
+  try {
+    const apiKey = process.env.GROQ_API_KEY || "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";
+    const systemInstruction = "Kamu adalah asisten virtual AI cerdas yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif.";
 
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${apiKey}`,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: systemInstruction },
-        { role: "user", content: promptText }
-      ],
-      temperature: 0.5,
-      max_tokens: 500
-    })
-  });
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: systemInstruction },
+          { role: "user", content: promptText }
+        ],
+        temperature: 0.5,
+        max_tokens: 500
+      })
+    });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Groq API Error (${response.status}): ${errText}`);
+    if (!response.ok) {
+      console.error(`Groq API Error: ${response.status}`);
+      return "Maaf, sistem AI sedang mengalami kendala jaringan. Silakan coba lagi nanti.";
+    }
+
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || "Maaf, tidak ada jawaban yang dihasilkan.";
+  } catch (err) {
+    console.error("Fetch AI Error:", err.message);
+    return "Maaf, terjadi kesalahan saat menghubungkan ke AI.";
   }
-
-  const data = await response.json();
-  return data.choices?.[0]?.message?.content || "Maaf, layanan kami sedang tidak dapat memproses permintaan.";
 }
 
 async function initSocket() {
@@ -85,37 +90,45 @@ async function initSocket() {
   });
 
   sock.ev.on('messages.upsert', async (m) => {
-    const msg = m.messages[0];
-    if (!msg || msg.key.fromMe) return;
+    try {
+      const msg = m.messages[0];
+      if (!msg || msg.key.fromMe) return;
 
-    const from = msg.key.remoteJid;
-    const body = msg.message?.conversation || msg.message?.extendedTextMessage?.text;
+      const from = msg.key.remoteJid;
+      
+      // Ambil teks pesan dengan aman dari berbagai tipe pesan
+      const body = msg.message?.conversation || 
+                   msg.message?.extendedTextMessage?.text || 
+                   msg.message?.imageMessage?.caption || 
+                   "";
 
-    if (body) {
-      const textLower = body.toLowerCase();
+      if (!body || body.trim() === "") return;
 
-      // Cek apakah pesan berhubungan dengan perbaikan / renovasi / pembangunan rumah
-      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'cat dinding', 'renovasi', 'pasang bata', 'upa borongan', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi'];
+      const textLower = body.toLowerCase().trim();
+
+      // Daftar kata kunci pekerjaan rumah / perbaikan
+      const keywords = ['perbaikan', 'pekerjaan', 'atap', 'dinding', 'renovasi', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi', 'cat', 'semen', 'batu'];
       const isHomeService = keywords.some(kw => textLower.includes(kw));
 
       if (isHomeService) {
-        // Balasan langsung untuk perbaikan / renovasi rumah
+        // Kirim balasan otomatis tanpa lewat AI
         await sock.sendMessage(from, { 
           text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" 
         });
       } else {
-        // Balasan standar menggunakan AI
+        // Balasan menggunakan AI
         try {
           await sock.sendPresenceUpdate('composing', from);
           const reply = await askAI(body);
           await sock.sendPresenceUpdate('paused', from);
           await sock.sendMessage(from, { text: reply });
-        } catch (err) {
-          console.error("Error AI:", err);
-          await sock.sendPresenceUpdate('paused', from);
-          await sock.sendMessage(from, { text: "Maaf, sistem AI sedang mengalami kesibukan. Silakan coba kirim pesan lagi." });
+        } catch (aiErr) {
+          console.error("Error sending AI msg:", aiErr);
+          await sock.sendMessage(from, { text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" });
         }
       }
+    } catch (generalErr) {
+      console.error("Error handling message:", generalErr);
     }
   });
 }
