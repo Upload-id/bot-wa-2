@@ -23,8 +23,7 @@ function clearAuth() {
 
 async function askAI(promptText) {
   try {
-    // API Key Groq
-    const apiKey = process.env.GROQ_API_KEY || "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";
+    const apiKey = process.env.GROQ_API_KEY || "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";
     const systemInstruction = "Kamu adalah asisten virtual AI cerdas dari Samarinda yang ramah, profesional, dan serba bisa. Jawablah setiap pertanyaan pengguna secara fleksibel, ramah, dan informatif.";
 
     const response = await axios.post(
@@ -50,7 +49,7 @@ async function askAI(promptText) {
     return response.data?.choices?.[0]?.message?.content || "Maaf, tidak ada jawaban yang dihasilkan.";
   } catch (err) {
     console.error("Groq API Error Detail:", err.response?.data || err.message);
-    return "Halo! Ada yang bisa saya bantu tentang layanan renovasi & pembangunan rumah di Samarinda?";
+    return "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!";
   }
 }
 
@@ -100,13 +99,13 @@ async function initSocket() {
 
       const textLower = body.toLowerCase().trim();
 
-      // Kata kunci khusus konstruksi/renovasi langsung dibalas tanpa API AI
+      // Kata kunci khusus renovasi/perbaikan rumah
       const keywords = ['perbaikan', 'pekerjaan', 'atap', 'dinding', 'renovasi', 'bangun rumah', 'tukang', 'bocor', 'borongan', 'konstruksi', 'cat', 'semen', 'batu', 'harga', 'biaya'];
       const isHomeService = keywords.some(kw => textLower.includes(kw));
 
       if (isHomeService) {
         await sock.sendMessage(from, { 
-          text: "Sabar ya, sebentar lagi admin membalas pesan Anda terkait layanan renovasi/konstruksi. Terima kasih!" 
+          text: "Sabar ya, sebentar lagi admin membalas pesan Anda. Terima kasih!" 
         });
       } else {
         await sock.sendPresenceUpdate('composing', from);
